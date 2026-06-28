@@ -30,7 +30,11 @@ class GamePanel extends JPanel implements ActionListener {
     // --- Ant foraging environment ---
     private final Point nestPos;          // pixel center of the nest
     private final Point foodPos;          // pixel center of the food source
-    private final float[][] pheromoneGrid; // [gridX][gridY], values in [0, 1]
+    // Two independent trails, like real ant chemical signatures:
+    //   foodTrailGrid (green) – laid by ants carrying food, recruits others toward food.
+    //   nestTrailGrid (blue)  – laid by ants searching, marks the way back home.
+    private final float[][] foodTrailGrid; // [gridX][gridY], values in [0, 1]
+    private final float[][] nestTrailGrid; // [gridX][gridY], values in [0, 1]
     private final int gridW;
     private final int gridH;
 
@@ -46,7 +50,8 @@ class GamePanel extends JPanel implements ActionListener {
 
         gridW         = DEFAULT_W / CELL_SIZE;
         gridH         = DEFAULT_H / CELL_SIZE;
-        pheromoneGrid = new float[gridW][gridH];
+        foodTrailGrid = new float[gridW][gridH];
+        nestTrailGrid = new float[gridW][gridH];
 
         // Spawn avatars clustered near the nest
         for (int i = 0; i < NUM_AVATARS; i++) {
@@ -55,10 +60,11 @@ class GamePanel extends JPanel implements ActionListener {
             avatars[i] = new Avatar(x, y, AVATAR_SIZE);
         }
 
-        // Default obstacles — cool gray stones + warm sandstone boulder
+        // Default obstacles — cool gray stones (static only; a moving boulder
+        // looked out of place in the default scene, so it was dropped — use
+        // the "+ Moving" button if a moving obstacle is needed for testing).
         obstacles.add(new StaticRectObstacle(200, 150, 100, 200, new Color(148, 140, 128)));
         obstacles.add(new StaticRectObstacle(550, 300, 160, 100, new Color(132, 122, 108)));
-        obstacles.add(new MovingRectObstacle(350, 60, 90, 80, 3, 2, new Color(175, 142, 90)));
 
         // Ensure starting state has no overlaps
         scatterAvatarsToNonOverlapping();
@@ -70,26 +76,36 @@ class GamePanel extends JPanel implements ActionListener {
     // Pheromone grid API (used by ant strategies)
     // -------------------------------------------------------------------------
 
-    /** Deposit pheromone at a pixel position; clamped to [0, 1]. */
-    public void depositPheromone(int px, int py, float amount) {
+    /** Deposit on the food trail (green) — laid by ants carrying food, recruits others toward food. */
+    public void depositFoodTrail(int px, int py, float amount) {
+        deposit(foodTrailGrid, px, py, amount);
+    }
+
+    /** Deposit on the nest trail (blue) — laid by searching ants, marks the way back home. */
+    public void depositNestTrail(int px, int py, float amount) {
+        deposit(nestTrailGrid, px, py, amount);
+    }
+
+    private void deposit(float[][] grid, int px, int py, float amount) {
         int gx = px / CELL_SIZE;
         int gy = py / CELL_SIZE;
         if (gx >= 0 && gx < gridW && gy >= 0 && gy < gridH) {
-            pheromoneGrid[gx][gy] = Math.min(1.0f, pheromoneGrid[gx][gy] + amount);
+            grid[gx][gy] = Math.min(1.0f, grid[gx][gy] + amount);
         }
     }
 
-    /** Read pheromone level at a pixel position (0 if out of bounds). */
-    public float getPheromoneAt(int px, int py) {
+    /** Read food-trail level at a pixel position (0 if out of bounds). */
+    public float getFoodTrailAt(int px, int py) { return read(foodTrailGrid, px, py); }
+
+    /** Read nest-trail level at a pixel position (0 if out of bounds). */
+    public float getNestTrailAt(int px, int py) { return read(nestTrailGrid, px, py); }
+
+    private float read(float[][] grid, int px, int py) {
         int gx = px / CELL_SIZE;
         int gy = py / CELL_SIZE;
-        if (gx >= 0 && gx < gridW && gy >= 0 && gy < gridH) return pheromoneGrid[gx][gy];
+        if (gx >= 0 && gx < gridW && gy >= 0 && gy < gridH) return grid[gx][gy];
         return 0f;
     }
-
-    public float[][] getPheromoneGrid() { return pheromoneGrid; }
-    public int getGridW()               { return gridW; }
-    public int getGridH()               { return gridH; }
 
     // -------------------------------------------------------------------------
     // Nest / food API (used by ant strategies)
@@ -224,18 +240,27 @@ class GamePanel extends JPanel implements ActionListener {
 
     private void evaporatePheromones() {
         float factor = 1f - EVAPORATION_RATE;
-        for (int gx = 0; gx < gridW; gx++)
-            for (int gy = 0; gy < gridH; gy++)
-                pheromoneGrid[gx][gy] *= factor;
+        for (int gx = 0; gx < gridW; gx++) {
+            for (int gy = 0; gy < gridH; gy++) {
+                foodTrailGrid[gx][gy] *= factor;
+                nestTrailGrid[gx][gy] *= factor;
+            }
+        }
     }
 
     private void drawPheromones(Graphics2D g2) {
+        // Nest trail (blue) drawn first, food trail (green) drawn on top where they overlap.
+        drawTrail(g2, nestTrailGrid, new Color(60, 140, 230));
+        drawTrail(g2, foodTrailGrid, new Color(0, 200, 120));
+    }
+
+    private void drawTrail(Graphics2D g2, float[][] grid, Color color) {
         for (int gx = 0; gx < gridW; gx++) {
             for (int gy = 0; gy < gridH; gy++) {
-                float v = pheromoneGrid[gx][gy];
+                float v = grid[gx][gy];
                 if (v > 0.01f) {
                     int alpha = Math.min(220, (int)(v * 220));
-                    g2.setColor(new Color(0, 200, 120, alpha));
+                    g2.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha));
                     g2.fillRect(gx * CELL_SIZE, gy * CELL_SIZE, CELL_SIZE, CELL_SIZE);
                 }
             }
