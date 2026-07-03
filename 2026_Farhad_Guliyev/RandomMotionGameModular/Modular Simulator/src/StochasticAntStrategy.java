@@ -13,16 +13,16 @@ import java.util.*;
  *
  * Sensing model
  *   Ants do NOT know the exact location of the food or nest from the start.
- *   Only within SENSE_RADIUS of the current goal does a "smell/sight" bias
- *   kick in and pull the ant toward it. Beyond that range, movement is
- *   driven purely by pheromone trails, heading inertia, and randomness —
- *   matching the professor's note that ants should rely on limited
- *   sense of smell/vision rather than an absolute compass.
+ *   Only within SENSE_RADIUS of the current goal does a strong "smell/sight"
+ *   bias kick in and pull the ant toward it. Beyond that range, movement is
+ *   driven mostly by pheromone trails, heading inertia, randomness, and a weak
+ *   scouting gradient so first food discovery remains observable in a demo.
  *
  * Direction choice uses roulette-wheel (fitness-proportionate) selection over
  * 8 compass directions, weighted by:
  *   pheromone level ahead  (reinforces successful paths)
- *   goal bias              (soft pull toward target — only within SENSE_RADIUS)
+ *   goal bias              (strong pull within SENSE_RADIUS, weak scout cue outside)
+ *   outward bias           (searchers spread away from the nest before finding food)
  *   heading inertia        (momentum, avoids jitter)
  *   exploration floor      (guarantees every direction has non-zero probability)
  * Directions that would walk the ant into an obstacle are excluded entirely,
@@ -33,14 +33,17 @@ class StochasticAntStrategy implements MovementStrategy {
     // ── Tuning constants ──────────────────────────────────────────────────────
     private static final int   STEP             = 5;     // pixels per tick
     private static final int   LOOK_AHEAD        = 25;    // pixels ahead to sample pheromone
-    private static final int   SENSE_RADIUS      = 160;   // pixels: smell/vision range for goal bias
+    private static final int   SENSE_RADIUS      = 450;   // pixels: strong smell/vision range for goal bias
     private static final int   OBSTACLE_LOOKAHEAD = 14;   // pixels ahead checked for obstacle avoidance
     private static final float DEPOSIT_FOOD_TRAIL = 0.10f; // green trail, laid while returning with food
     private static final float DEPOSIT_NEST_TRAIL = 0.04f; // blue trail, laid while searching
     private static final float W_PHERO       = 5.0f;  // weight: pheromone signal
-    private static final float W_GOAL        = 2.5f;  // weight: pull toward target (only within sense range)
-    private static final float W_INERTIA     = 1.5f;  // weight: heading persistence
-    private static final float W_EXPLORE     = 0.4f;  // base weight (exploration floor)
+    private static final float W_GOAL        = 4.0f;  // strong pull toward target once inside sense range
+    private static final float W_SCOUT       = 0.35f; // weak broad gradient; prevents hour-long wandering
+    private static final float W_OUTWARD     = 0.75f; // search bias away from nest before food is found
+    private static final float W_INERTIA     = 0.9f;  // heading persistence
+    private static final float W_EXPLORE     = 0.7f;  // base weight (exploration floor)
+    private static final float W_JITTER      = 0.25f; // per-tick noise to break clusters and loops
 
     // 8 compass directions
     private static final int[][] DIRS = {
@@ -111,6 +114,15 @@ class StochasticAntStrategy implements MovementStrategy {
         double guy  = gy / gNorm;
         boolean withinSenseRange = glen <= SENSE_RADIUS;
 
+        // Searchers that have not found a food trail yet should spread away
+        // from the nest instead of orbiting the starting area.
+        Point nest = panel.getNestPos();
+        double ox = cx - nest.x;
+        double oy = cy - nest.y;
+        double oNorm = Math.max(1.0, Math.hypot(ox, oy));
+        double oux = ox / oNorm;
+        double ouy = oy / oNorm;
+
         // Current heading as unit vector
         double hLen = Math.max(1.0, Math.hypot(s.headingX, s.headingY));
         double hux  = s.headingX / hLen;
@@ -144,12 +156,15 @@ class StochasticAntStrategy implements MovementStrategy {
             // Cosine similarity with goal direction (only forward half-space),
             // only applied once the ant is close enough to sense the target.
             double dotGoal    = (dx / norm) * gux + (dy / norm) * guy;
+            double dotOutward = (dx / norm) * oux + (dy / norm) * ouy;
             double dotInertia = (dx / norm) * hux + (dy / norm) * huy;
 
             weights[i] = W_EXPLORE
                        + W_PHERO   * phero
-                       + (withinSenseRange ? W_GOAL * (float) Math.max(0.0, dotGoal) : 0f)
-                       + W_INERTIA * (float) Math.max(0.0, dotInertia);
+                       + (withinSenseRange ? W_GOAL : W_SCOUT) * (float) Math.max(0.0, dotGoal)
+                       + (!s.hasFood && !withinSenseRange ? W_OUTWARD * (float) Math.max(0.0, dotOutward) : 0f)
+                       + W_INERTIA * (float) Math.max(0.0, dotInertia)
+                       + rng.nextFloat() * W_JITTER;
         }
 
         // Roulette-wheel selection
