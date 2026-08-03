@@ -114,6 +114,19 @@ class GamePanel extends JPanel implements ActionListener {
     public Point getNestPos() { return nestPos; }
     public Point getFoodPos() { return foodPos; }
 
+    /**
+     * Snapshot of every avatar's centre point. Used by strategies that reason
+     * about neighbours directly (e.g. the game-theoretic congestion model),
+     * since {@code computeDelta} only receives obstacles, not other agents.
+     */
+    public java.util.List<Point> getAvatarCenters() {
+        java.util.List<Point> pts = new ArrayList<>(avatars.length);
+        for (Avatar a : avatars) {
+            pts.add(new Point(a.getX() + a.getSize() / 2, a.getY() + a.getSize() / 2));
+        }
+        return pts;
+    }
+
     /** True if the avatar's centre is within (NEST_RADIUS + half avatar size) of the nest centre. */
     public boolean atNest(Avatar a) {
         return distToPoint(a, nestPos) <= NEST_RADIUS + a.getSize() / 2.0;

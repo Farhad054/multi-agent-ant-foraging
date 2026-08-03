@@ -31,9 +31,9 @@ public class RandomMotionGameModular extends JFrame {
             new SeekCenterStrategy(),
             new DriftRightStrategy(),
             new StochasticAntStrategy(gamePanel),
-            // new StigmergyAntStrategy(gamePanel),
-            // new GameTheoryAntStrategy(gamePanel),
-            // new RLAntStrategy(gamePanel),
+            new StigmergyAntStrategy(gamePanel),
+            new GameTheoryAntStrategy(gamePanel),
+            new RLAntStrategy(gamePanel),
         };
 
         // ── Control bar ──────────────────────────────────────────────
